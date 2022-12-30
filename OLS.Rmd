@@ -1,0 +1,739 @@
+---
+title: "MNIST Dataset and OLS Classification"
+output:
+  html_document:
+    df_print: paged
+---
+----------------------------------
+----------k vs Not k--------------
+----------------------------------
+```{r}
+#Function to load image and label files 
+load_image_file = function(filename) {
+  ret = list()
+  f = file(filename, 'rb')
+  readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  n = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  nrow = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  ncol = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  x = readBin(f, 'integer', n = n*nrow*ncol, size = 1, signed = FALSE)
+  close(f)
+  data.frame(matrix(x, ncol = nrow*ncol, byrow = TRUE))
+}
+
+load_label_file = function(filename) {
+  f = file(filename, 'rb')
+  readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  n = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  L = readBin(f, 'integer', n = n, size = 1, signed = FALSE)
+  close(f)
+  L
+}
+
+#Set working directory
+setwd("/Users/allenlau/Documents/CCNY/DSEI103_AppliedStatistics/DSEI103_Project2")
+
+#Load images and corresponding labels 
+train_digits = load_image_file('train-images.idx3-ubyte') #dataframe of flattened images 
+train_Labels = load_label_file('train-labels.idx1-ubyte')
+
+#Select digit k and re-label the dataset wrt selected digit
+k = 0
+is_k = which((train_Labels == k) %in% TRUE) #indices corresponding to digit k 
+not_k = which((train_Labels == k) %in% FALSE) #indices not corresponding to k 
+
+#Display i'th instance of selected digit in the training set:
+i=104
+image(1:28, 1:28, matrix(as.matrix(train_digits[is_k[i],]), nrow=28)[ , 28:1], 
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+
+```
+
+
+
+```{r}
+#Find columns in digit images where all rows are not 0 
+ind <- which((colSums(train_digits) > 0) %in% TRUE)
+ind
+```
+
+
+```{r}
+#Drop columns where all rows contain zeros
+train_digits <- train_digits[colSums(train_digits) > 0]
+dim(train_digits)
+```
+
+
+```{r}
+#importing library for train/test split 
+library(caTools)
+
+#set seed
+set.seed(1)
+
+#create data frames for k and not k 
+sample_isk <- train_digits[is_k,]
+sample_notk <- train_digits[not_k,]
+
+#create train/test split for k 
+sample <- sample.split(sample_isk, SplitRatio = 0.5)
+train_digits_isk <- subset(sample_isk, sample == TRUE)
+test_digits_isk <- subset(sample_isk, sample == FALSE)
+
+#create train/test split for not k 
+sample <- sample.split(sample_notk, SplitRatio = 0.5)
+train_digits_notk <- subset(sample_notk, sample == TRUE)
+test_digits_notk <- subset(sample_notk, sample == FALSE)
+```
+
+
+```{r}
+#Count number of data points in is_k and not_k training sets 
+nrow_isk <- nrow(train_digits_isk)
+nrow_notk <- nrow(train_digits_notk)
+
+#Classify 1 as digit k and -1 as not digit k 
+y_isk <- rep(1, nrow_isk)
+y_notk <- rep(-1, nrow_notk)
+
+#Actual response data frame 
+y <- data.frame(c(y_isk, y_notk))
+
+#Combined is k and not k data frame for modeling 
+X <- rbind(train_digits_isk, train_digits_notk)
+df <- cbind(X,y)
+
+#Ordinary least squares linear modeling 
+model <- lm(y$c.y_isk..y_notk. ~ ., data = X)
+```
+
+
+```{r}
+#Coefficients of model 
+model_coeff <- data.frame(model$coefficients)
+
+#Intercept
+beta_0 <- model_coeff[1,]
+beta_0
+
+#Model Coefficients
+beta <- model_coeff[-1,]
+beta
+```
+
+```{r}
+#Create beta_img array such that we can still display coefficients as a 28X28 image, after removing zero features 
+beta_img = rep(NA, 784)
+ind_betaCoef <- array(c(ind, beta), dim = c(length(beta),2))
+
+for (i in 1:length(beta)){
+  beta_img[ind_betaCoef[i,1]] <- ind_betaCoef[i,2]
+}
+```
+
+
+```{r}
+#Visualization of Beta as a 28x28 image 
+image(1:28, 1:28, matrix(as.matrix(beta_img), nrow=28)[ , 28:1],
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+
+```
+
+
+```{r}
+#Classification error rate and confusion matrices the training data set
+
+#Model predictions on training data set X
+model_pred_train <- data.frame(predict(model,X))
+
+#Train data set pre-processing for error rate calculation
+pred_actual_train <- cbind(model_pred_train, y)
+pred_actual_train["predicted"] <- pred_actual_train["predict.model..X."]
+pred_actual_train$predicted[pred_actual_train$predicted <= 0] <- -1
+pred_actual_train$predicted[pred_actual_train$predicted > 0] <- 1
+
+#Classification error rate = incorrectly classified / total number of objects 
+error_rate_train <- sum(pred_actual_train$c.y_isk..y_notk. != pred_actual_train$predicted) / nrow(pred_actual_train)
+error_rate_train
+```
+
+
+```{r}
+#Classification error rate and confusion matrices the test data set
+
+#Test data set pre-processing for test predictions 
+X_test <- rbind(test_digits_isk, test_digits_notk)
+
+y_isk_test <- rep(1, nrow(test_digits_isk))
+y_notk_test <- rep(-1, nrow(test_digits_notk))
+y_test <- data.frame(c(y_isk_test, y_notk_test))
+
+#Model predictions on test data set X
+model_pred_test <- data.frame(predict(model,X_test))
+
+#Test data set pre-processing for error rate calculation
+pred_actual_test <- cbind(model_pred_test, y_test)
+pred_actual_test["predicted"] <- pred_actual_test["predict.model..X_test."]
+pred_actual_test$predicted[pred_actual_test$predicted <= 0] <- -1
+pred_actual_test$predicted[pred_actual_test$predicted > 0] <- 1
+
+#Classification error rate = incorrectly classified / total number of objects 
+error_rate_test <- sum(pred_actual_test$c.y_isk_test..y_notk_test. != pred_actual_test$predicted) / nrow(pred_actual_test)
+error_rate_test
+```
+
+
+
+```{r}
+#Confusion matrices for training data set
+outcomes_train <- table(pred_actual_train$predicted, pred_actual_train$c.y_isk..y_notk.)
+outcomes_train
+```
+
+
+
+```{r}
+#Confusion matrices for test data set
+outcomes_test <- table(pred_actual_test$predicted, pred_actual_test$c.y_isk_test..y_notk_test.)
+outcomes_test
+```
+
+
+
+```{r}
+#Plots for Residuals vs Fitted, Normal Q-Q, Scale-Location, and Residuals vs Leverage
+plot(model, which = c(1,2,3,5))
+```
+
+
+-----------------------------------
+--------Backward Selection---------
+-----------------------------------
+
+
+```{r}
+#Backward Selection
+library(leaps)
+backward <- regsubsets(c.y_isk..y_notk. ~., data = df, nbest = 1, method = "backward", really.big = TRUE, nvmax = 200)
+
+backward_summary <- summary(backward)
+```
+
+
+```{r}
+#min RSS
+min(backward_summary$rss)
+```
+
+```{r}
+#Index of best performing model
+which(backward_summary$rss == min(backward_summary$rss))
+```
+
+
+```{r}
+#Model Coefficients 
+beta_img_bwd = rep(NA, 784)
+bwdmodel <- model$coefficients[backward_summary$which[201,]]
+bwdmodel
+```
+
+
+```{r}
+#Number of Features Selected 
+length(model$coefficients[backward_summary$which[201,]])
+```
+
+```{r}
+#Convert Model Coefficients to a 28x28 maxtrix 
+for (i in 2:length(bwdmodel)){
+  beta_img_bwd[as.numeric(substring(names(bwdmodel[i]),2))] <- bwdmodel[i]
+}
+
+```
+
+
+```{r}
+#Visualization of Beta as a 28x28 image 
+image(1:28, 1:28, matrix(as.matrix(beta_img_bwd), nrow=28)[ , 28:1],
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+```
+
+
+
+----------------------------------
+---------digit vs digit-----------
+----------------------------------
+
+
+```{r}
+lmDigits <- function(digit1, digit2, ind = NULL, betaimg = FALSE){
+  set.seed(1)
+  
+  #Select digit k and re-label the data set wrt selected digit
+  is_digit1 = which((train_Labels == digit1) %in% TRUE) #indices corresponding to digit1
+  is_digit2 = which((train_Labels == digit2) %in% TRUE) #indices corresponding to digit2
+  
+  #create data frames for digit1 and digit2
+  sample_isdigit1 <- train_digits[is_digit1,]
+  sample_isdigit2 <- train_digits[is_digit2,]
+  
+  #create train/test split for digit1
+  sample <- sample.split(sample_isdigit1, SplitRatio = 0.5)
+  train_digits1 <- subset(sample_isdigit1, sample == TRUE)
+  test_digits1<- subset(sample_isdigit1, sample == FALSE)
+
+  #create train/test split for digit2
+  sample <- sample.split(sample_isdigit2, SplitRatio = 0.5)
+  train_digits2 <- subset(sample_isdigit2, sample == TRUE)
+  test_digits2 <- subset(sample_isdigit2, sample == FALSE)
+  
+  #Classify 1 as digit 1 and -1 as digit 2
+  y_isdigit1 <- rep(1, nrow(train_digits1))
+  y_isdigit2 <- rep(-1, nrow(train_digits2))
+
+  #Actual response data frame 
+  y <- data.frame(c(y_isdigit1, y_isdigit2))
+
+  #Combined is k and not k data frame for modeling 
+  X <- rbind(train_digits1, train_digits2)
+
+  #Ordinary least squares linear modeling 
+  model <- lm(unlist(y) ~ ., data = X)
+  
+  #Classification error rate and confusion matrices the training data set
+  #Model predictions on training data set X
+  model_pred_train <- data.frame(suppressWarnings(predict(model,X))) #Suppress warnings for outputs
+  colnames(model_pred_train)[1] <- "predict.model..X."
+
+  #Train data set pre-processing for error rate calculation
+  pred_actual_train <- cbind(model_pred_train, y)
+  pred_actual_train["predicted"] <- pred_actual_train["predict.model..X."]
+  pred_actual_train$predicted[pred_actual_train$predicted <= 0] <- -1
+  pred_actual_train$predicted[pred_actual_train$predicted > 0] <- 1
+
+  #Classification error rate = incorrectly classified / total number of objects 
+  error_rate_train <- round(sum(pred_actual_train$c.y_isdigit1..y_isdigit2. != pred_actual_train$predicted) / nrow(pred_actual_train), digits = 6)
+  #cat("\n","Error Rate (Train): ", error_rate_train, "\n")
+  
+  #Classification error rate and confusion matrices the test data set
+  #Test data set pre-processing for test predictions 
+  X_test <- rbind(test_digits1, test_digits2)
+
+  y_digit1_test <- rep(1, nrow(test_digits1))
+  y_digit2_test <- rep(-1, nrow(test_digits2))
+  y_test <- data.frame(c(y_digit1_test, y_digit2_test))
+
+  #Model predictions on test data set X
+  model_pred_test <- data.frame(suppressWarnings(predict(model,X_test))) #Suppress warnings for outputs
+  colnames(model_pred_test)[1] <- "predict.model..X_test."
+
+  #Test data set pre-processing for error rate calculation
+  pred_actual_test <- cbind(model_pred_test, y_test)
+  pred_actual_test["predicted"] <- pred_actual_test["predict.model..X_test."]
+  pred_actual_test$predicted[pred_actual_test$predicted <= 0] <- -1
+  pred_actual_test$predicted[pred_actual_test$predicted > 0] <- 1
+
+  #Classification error rate = incorrectly classified / total number of objects 
+  error_rate_test <- round(sum(pred_actual_test$c.y_digit1_test..y_digit2_test. != pred_actual_test$predicted) / nrow(pred_actual_test), digits = 6)
+  #cat("\n","Error Rate (Test): ", error_rate_test, "\n")
+
+  #Visualization of Beta as a 28x28 image 
+  if(betaimg){
+    #Model Coefficients
+    beta <- data.frame(model$coefficients)[-1,]
+    beta_0 <- data.frame(model$coefficients)[1,]
+    
+    #Create beta_img array such that we can still display coefficients as a 28X28 image, after removing zero features 
+    beta_img = rep(NA, 784)
+    ind_betaCoef <- array(c(ind, beta), dim = c(length(beta),2))
+
+    for (i in 1:length(beta)){
+      beta_img[ind_betaCoef[i,1]] <- ind_betaCoef[i,2]
+    }
+    
+    image(1:28, 1:28, matrix(as.matrix(beta_img), nrow=28)[ , 28:1],
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+    return(beta_0)
+  }
+  
+  
+  return(list(error_rate_train, error_rate_test))
+  #plot(model, which = c(1,2,3,5))
+}
+```
+
+
+```{r}
+#Create empty matrix, and label rows and columns as digits 
+error_rate_matrix <- matrix(nrow = 10, ncol = 10)
+matrix(error_rate_matrix)
+rownames(error_rate_matrix) <- c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+colnames(error_rate_matrix) <- c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+```
+
+```{r}
+#Compute error rates for all pairs of digits and populate matrix
+#Matrix contains train error rates in upper triangle and test error rates in lower triangle 
+for (digit1 in 0:9){
+  for (digit2 in 0:9){
+    if (digit2>digit1){
+      results = lmDigits(digit1, digit2)
+      error_rate_matrix[digit1+1,digit2+1] = results[[1]]
+      error_rate_matrix[digit2+1,digit1+1] = results[[2]]
+    }
+  }
+}
+  
+```
+
+```{r}
+#Display Error Rate Matrix
+#Upper Triangle = Train Error Rates
+#Lower Triangle = Test Error Rates 
+error_rate_matrix
+
+#Create test_error_rate_matrix for finding min/max error rates
+test_error_rate_matrix <- error_rate_matrix
+test_error_rate_matrix[upper.tri(test_error_rate_matrix)] <- NA
+```
+
+
+```{r}
+#Find max error rate 
+max_error <- max(apply(test_error_rate_matrix[2:10,], 1, max, na.rm = TRUE))
+max_error_ind <- which(test_error_rate_matrix == max_error, arr.ind = TRUE)
+cat("Highest Error Rate is", max_error, "for digits", max_error_ind[1] - 1, "and", max_error_ind[2] - 1)
+```
+
+
+```{r}
+#Find min error rate 
+min_error <- min(apply(test_error_rate_matrix[2:10,], 1, min, na.rm = TRUE))
+min_error_ind <- which(test_error_rate_matrix == min_error, arr.ind = TRUE)
+cat("Lowest Error Rate is", min_error, "for digits", min_error_ind[1] - 1, "and", min_error_ind[2] - 1)
+```
+
+
+
+```{r}
+#Beta for max error rate model 
+lmDigits(5,3,ind,betaimg = TRUE)
+```
+
+
+```{r}
+#Beta for min error rate model 
+lmDigits(6,7,ind,betaimg = TRUE)
+```
+
+
+----------------------------------
+---k vs Not k: Outliers Removed---
+----------------------------------
+
+```{r}
+#Calculate Cook's Distance 
+cooksd <- cooks.distance(model)
+cooksd <- na.omit(cooksd)
+```
+
+
+```{r}
+#Plot Cook's Distance, with Cook's Distance Mean plotted in Red 
+sample_size <- nrow(X)
+plot(cooksd, pch = "x", cex = 1, main = "Cook's Distance")
+abline(h = mean(cooksd), col = "red", lwd = 2)
+
+#General Rule of Thumb for identifying outliers with Cook's Distance is if cook's distance > 4 / sample_size 
+```
+
+```{r}
+#Number of Outliers based on Cook's Distance > 4 / sample size 
+sum(cooksd>(4/sample_size))
+```
+
+
+```{r}
+#Visualize Outliers
+outliers <- data.frame(cooksd[cooksd>(4/sample_size)])
+outliers <- cbind(index = rownames(outliers), outliers)
+outliers <- outliers[order(outliers[,2], decreasing = TRUE),]
+
+
+#Visualize top 5 most influential data points
+train_digits_outliers <- load_image_file('train-images.idx3-ubyte')
+for (i in 1:5){
+  image(1:28, 1:28, matrix(as.matrix(train_digits_outliers[row.names(train_digits_outliers) == outliers$index[i],]), nrow=28)[ , 28:1],
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+}
+
+```
+
+```{r}
+#Remove identified outliers from train 
+reduced_train_digits <- df[!(row.names(df) %in% outliers$index),]
+```
+
+
+```{r}
+#Ordinary least squares linear modeling 
+model <- lm(c.y_isk..y_notk. ~ ., data = reduced_train_digits)
+```
+
+```{r}
+#Coefficients of model 
+model_coeff <- data.frame(model$coefficients)
+
+#Intercept
+beta_0 <- model_coeff[1,]
+beta_0
+
+#Model Coefficients
+beta <- model_coeff[-1,]
+beta
+```
+
+```{r}
+#Create beta_img array such that we can still display coefficients as a 28X28 image, after removing zero features 
+beta_img = rep(NA, 784)
+ind_betaCoef <- array(c(ind, beta), dim = c(length(beta),2))
+
+for (i in 1:length(beta)){
+  beta_img[ind_betaCoef[i,1]] <- ind_betaCoef[i,2]
+}
+```
+
+```{r}
+#Visualization of Beta as a 28x28 image 
+image(1:28, 1:28, matrix(as.matrix(beta_img), nrow=28)[ , 28:1],
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+
+```
+
+```{r}
+#Classification error rate and confusion matrices the training data set
+
+#Model predictions on training data set X
+model_pred_train <- data.frame(predict(model,reduced_train_digits[,1:(length(reduced_train_digits)-1)]))
+
+#Train data set pre-processing for error rate calculation
+pred_actual_train <- cbind(model_pred_train,reduced_train_digits[,length(reduced_train_digits)])
+colnames(pred_actual_train)[1] <- "predicted"
+colnames(pred_actual_train)[2] <- "label"
+pred_actual_train$predicted[pred_actual_train$predicted < 0] <- -1
+pred_actual_train$predicted[pred_actual_train$predicted > 0] <- 1
+
+#Classification error rate = incorrectly classified / total number of objects 
+error_rate_train <- sum(pred_actual_train$label != pred_actual_train$predicted) / nrow(pred_actual_train)
+error_rate_train
+```
+
+
+```{r}
+#Classification error rate and confusion matrices the test data set
+
+#Model predictions on test data set X
+model_pred_test <- data.frame(predict(model,X_test))
+
+#Test data set pre-processing for error rate calculation
+pred_actual_test <- cbind(model_pred_test, y_test)
+pred_actual_test["predicted"] <- pred_actual_test["predict.model..X_test."]
+pred_actual_test$predicted[pred_actual_test$predicted < 0] <- -1
+pred_actual_test$predicted[pred_actual_test$predicted > 0] <- 1
+
+#Classification error rate = incorrectly classified / total number of objects 
+error_rate_test <- sum(pred_actual_test$c.y_isk_test..y_notk_test. != pred_actual_test$predicted) / nrow(pred_actual_test)
+error_rate_test
+```
+
+
+```{r}
+#Confusion matrices for training data set
+outcomes_train <- table(pred_actual_train$predicted, pred_actual_train$label)
+outcomes_train
+```
+
+
+```{r}
+#Confusion matrices for test data set
+outcomes_test <- table(pred_actual_test$predicted, pred_actual_test$c.y_isk_test..y_notk_test.)
+outcomes_test
+```
+
+
+-----------------------------------
+-digit vs digit:: Outliers Removed-
+-----------------------------------
+
+
+```{r}
+lmDigitsCooksD <- function(digit1, digit2, ind = NULL, betaimg = FALSE){
+  set.seed(1)
+  
+  #Select digit k and re-label the data set wrt selected digit
+  is_digit1 = which((train_Labels == digit1) %in% TRUE) #indices corresponding to digit1
+  is_digit2 = which((train_Labels == digit2) %in% TRUE) #indices corresponding to digit2
+  
+  #create data frames for digit1 and digit2
+  sample_isdigit1 <- train_digits[is_digit1,]
+  sample_isdigit2 <- train_digits[is_digit2,]
+  
+  #create train/test split for digit1
+  sample <- sample.split(sample_isdigit1, SplitRatio = 0.5)
+  train_digits1 <- subset(sample_isdigit1, sample == TRUE)
+  test_digits1<- subset(sample_isdigit1, sample == FALSE)
+
+  #create train/test split for digit2
+  sample <- sample.split(sample_isdigit2, SplitRatio = 0.5)
+  train_digits2 <- subset(sample_isdigit2, sample == TRUE)
+  test_digits2 <- subset(sample_isdigit2, sample == FALSE)
+  
+  #Classify 1 as digit 1 and -1 as digit 2
+  y_isdigit1 <- rep(1, nrow(train_digits1))
+  y_isdigit2 <- rep(-1, nrow(train_digits2))
+
+  #Actual response data frame 
+  y <- data.frame(c(y_isdigit1, y_isdigit2))
+
+  #Combined is k and not k data frame for modeling 
+  X <- rbind(train_digits1, train_digits2)
+  df <- cbind(X,y)
+
+  #Ordinary least squares linear modeling 
+  model <- lm(unlist(y) ~ ., data = X)
+  
+  #Calculate Cook's Distance 
+  cooksd <- cooks.distance(model)
+  cooksd <- na.omit(cooksd)
+  sample_size <- nrow(X)
+  
+  #Outliers
+  outliers <- data.frame(cooksd[cooksd>(4/sample_size)])
+  outliers <- cbind(index = rownames(outliers), outliers)
+  outliers <- outliers[order(outliers[,2], decreasing = TRUE),]
+  
+  #Remove identified outliers from train 
+  reduced_train_digits <- df[!(row.names(df) %in% outliers$index),]
+  
+  #Ordinary least squares linear modeling
+  model <- lm(c.y_isdigit1..y_isdigit2. ~ ., data = reduced_train_digits)
+
+  #Classification error rate and confusion matrices the training data set
+  #Model predictions on training data set X
+  model_pred_train <- data.frame(predict(model,reduced_train_digits[,1:(length(reduced_train_digits)-1)]))
+
+  #Train data set pre-processing for error rate calculation
+  pred_actual_train <- cbind(model_pred_train,reduced_train_digits[,length(reduced_train_digits)])
+  colnames(pred_actual_train)[1] <- "predicted"
+  colnames(pred_actual_train)[2] <- "label"
+  pred_actual_train$predicted[pred_actual_train$predicted < 0] <- -1
+  pred_actual_train$predicted[pred_actual_train$predicted > 0] <- 1
+
+  #Classification error rate = incorrectly classified / total number of objects
+  error_rate_train <- round(sum(pred_actual_train$label != pred_actual_train$predicted) / nrow(pred_actual_train), digits = 6)
+
+  #Classification error rate and confusion matrices the test data set
+  #Test data set pre-processing for test predictions
+  X_test <- rbind(test_digits1, test_digits2)
+
+  y_digit1_test <- rep(1, nrow(test_digits1))
+  y_digit2_test <- rep(-1, nrow(test_digits2))
+  y_test <- data.frame(c(y_digit1_test, y_digit2_test))
+
+  #Model predictions on test data set X
+  model_pred_test <- data.frame(suppressWarnings(predict(model,X_test))) #Suppress warnings for outputs
+  colnames(model_pred_test)[1] <- "predict.model..X_test."
+
+  #Test data set pre-processing for error rate calculation
+  pred_actual_test <- cbind(model_pred_test, y_test)
+  pred_actual_test["predicted"] <- pred_actual_test["predict.model..X_test."]
+  pred_actual_test$predicted[pred_actual_test$predicted < 0] <- -1
+  pred_actual_test$predicted[pred_actual_test$predicted > 0] <- 1
+
+  #Classification error rate = incorrectly classified / total number of objects
+  error_rate_test <- round(sum(pred_actual_test$c.y_digit1_test..y_digit2_test. != pred_actual_test$predicted) / nrow(pred_actual_test), digits = 6)
+  #cat("\n","Error Rate (Test): ", error_rate_test, "\n")
+
+  #Visualization of Beta as a 28x28 image
+  if(betaimg){
+    #Model Coefficients
+    beta <- data.frame(model$coefficients)[-1,]
+    beta_0 <- data.frame(model$coefficients)[1,]
+
+    #Create beta_img array such that we can still display coefficients as a 28X28 image, after removing zero features
+    beta_img = rep(NA, 784)
+    ind_betaCoef <- array(c(ind, beta), dim = c(length(beta),2))
+
+    for (i in 1:length(beta)){
+      beta_img[ind_betaCoef[i,1]] <- ind_betaCoef[i,2]
+    }
+
+    image(1:28, 1:28, matrix(as.matrix(beta_img), nrow=28)[ , 28:1],
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+    return(beta_0)
+  }
+
+
+  return(list(error_rate_train, error_rate_test))
+  #plot(model, which = c(1,2,3,5))
+}
+```
+
+
+```{r}
+#Create empty matrix, and label rows and columns as digits 
+error_rate_matrix_cooks <- matrix(nrow = 10, ncol = 10)
+matrix(error_rate_matrix_cooks)
+rownames(error_rate_matrix_cooks) <- c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+colnames(error_rate_matrix_cooks) <- c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+```
+
+
+```{r}
+#Compute error rates for all pairs of digits and populate matrix
+#Matrix contains train error rates in upper triangle and test error rates in lower triangle 
+for (digit1 in 0:9){
+  for (digit2 in 0:9){
+    if (digit2>digit1){
+      results = lmDigitsCooksD(digit1, digit2)
+      error_rate_matrix_cooks[digit1+1,digit2+1] = results[[1]]
+      error_rate_matrix_cooks[digit2+1,digit1+1] = results[[2]]
+    }
+  }
+}
+  
+```
+
+
+```{r}
+#Display Error Rate Matrix
+#Upper Triangle = Train Error Rates
+#Lower Triangle = Test Error Rates 
+error_rate_matrix_cooks
+
+#Create test_error_rate_matrix for finding min/max error rates
+test_error_rate_matrix_cooks <- error_rate_matrix_cooks
+test_error_rate_matrix_cooks[upper.tri(test_error_rate_matrix_cooks)] <- NA
+```
+
+
+```{r}
+#Find max error rate 
+max_error <- max(apply(test_error_rate_matrix_cooks[2:10,], 1, max, na.rm = TRUE))
+max_error_ind <- which(test_error_rate_matrix_cooks == max_error, arr.ind = TRUE)
+cat("Highest Error Rate is", max_error, "for digits", max_error_ind[1] - 1, "and", max_error_ind[2] - 1)
+```
+
+
+```{r}
+#Find min error rate 
+min_error <- min(apply(test_error_rate_matrix_cooks[2:10,], 1, min, na.rm = TRUE))
+min_error_ind <- which(test_error_rate_matrix_cooks == min_error, arr.ind = TRUE)
+cat("Lowest Error Rate is", min_error, "for digits", min_error_ind[1] - 1, "and", min_error_ind[2] - 1)
+```
+
+
+
+
